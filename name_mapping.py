@@ -35,15 +35,16 @@ TYPE_HANDLERS = {
                    "File type: (?P<file_type>.+?) {2}File size: (?P<file_size>\\d+?) {2}"
                    "Source path: (?P<file_path>.+)$"),
 
-    "Event::Endpoint::NonCompliant": None,    # None == ignore the event
-    "Event::Endpoint::Compliant": None,
-    "Event::Endpoint::Device::AlertedOnly": None,
-    "Event::Endpoint::UpdateFailure": None,
+    "Event::Endpoint::NonCompliant": threat_regex,    # None == ignore the event
+    "Event::Endpoint::Compliant": threat_regex,
+    "Event::Endpoint::Device::AlertedOnly": threat_regex,
+    "Event::Endpoint::UpdateFailure": threat_regex,
     "Event::Endpoint::SavScanComplete": None,
-    "Event::Endpoint::Application::Allowed": None,
+    "Event::Endpoint::Application::Allowed": threat_regex,
     "Event::Endpoint::UpdateSuccess": None,
-    "Event::Endpoint::WebControlViolation": None,
-    "Event::Endpoint::WebFilteringBlocked": None,
+    "Event::Endpoint::WebControlViolation": threat_regex,
+    "Event::Endpoint::WebFilteringBlocked": threat_regex,
+    "Event::Endpoint::UpdateRebootRequired": None,
 }
 
 
