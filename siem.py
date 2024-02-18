@@ -25,6 +25,10 @@ import name_mapping
 import config
 import api_client
 import vercheck
+import configparser
+import asyncio
+from graph import Graph
+from msgraph.generated.models.o_data_errors.o_data_error import ODataError
 
 VERSION = "2.1.0"
 QUIET = False
@@ -64,6 +68,41 @@ CEF_MAPPING = {
     "created_at": "rt",
     "full_file_path": "filePath",
     "location": "dhost",
+}
+
+schema = {
+    'datastream': str, #	String		This has the value Alert or Event to distinguish between events and alerts.
+    'group': str, #	String	Enum	Event group. One of: AD_SYNC, APP_REPUTATION, APPLICATION_CONTROL, BLOCKLISTED, CONNECTIVITY, 'CREDENTIAL_MANAGER,CSWITCH, DATA_LOSS_PREVENTION, DENC, DOWNLOAD_REPUTATION, ENDPOINT_FIREWALL, FORENSIC_SNAPSHOT, 'GENERAL, ISOLATION, MALWARE, MDR, MOBILES, PERIPHERALS, POLICY, PROTECTION, PUA, RUNTIME_DETECTIONS, SECURITY, 'SYSTEM_HEALTH, UAV, UNCATEGORIZED, UPDATING, UTM, VIRT, WEB, WIRELESS, XGEMAIL, ZTNA_AUTHENTICATION, ZTNA_GATEWAY, 'ZTNA_RESOURCE.
+    'type': str, #	String		Event type.
+    'severity': str, #	String	Enum	Allowed values: NONE, LOW, MEDIUM, HIGH, CRITICAL.
+    'source': str, #	String		For endpoint events: "n/a" (for Windows Server), or user name (such as "John Smith"), or the login 'associated with the user "John-PC\Administrator".
+    'source_info': str, #	Object	Source Info object (see below)	
+    'location': str, #	String		For most events, this is the computer/server/firewall host name where the event occurred.
+    'dhost': str, #	String		Destination host.
+    'suser': str, #	String		Name of user signed in at the time of the event.
+
+    'name': str, #	String		Event description.
+    'data': str, #	Object	Alert Data object (see below)	Alert data.
+    'info': str, #	Object	Alert Info object (see below)	Alert info.
+    'description': str, #	String		Alert description.
+
+    'when': str, #	String	Date-time	When the event was reported.
+    'created_at': str, #	String	Date-time	When the event record was created.
+    'end': str, #	String	Timestamp	When an event is created. This matches what you see in Sophos Central UI. Its value is the same as when in the JSON object, and its CEF equivalent is reported_at.
+
+    'id': str, #	String	UUID	Event ID.
+    # 'customer_id': str, #	String	UUID	Customer ID.
+    # 'user_id': str, #	String		Identifies the user related to the event.
+    # 'threat': str, #	String		Threat correlation ID.
+    # 'endpoint_type': str, #	String	Enum	Endpoint type. One of: mobile, computer, server, security_vm, sensor, utm, access_point, wireless_network, mailbox, slec, xgfirewall, ztna_gateway, nta_appliance. Present only if endpoint_id is also present.
+    # # 'endpoint_id': str, #	String	UUID	Endpoint ID associated with the event.
+    # 'whitelist_properties': str, #	List of objects	Endpoint Whitelist object (see below)	
+    # 'core_remedy_items': str, #	Object	Core Remedy Items object (see below)	This is set only for Endpoint Core Detection events (see below).
+    # 'origin': str, #	String 	Enum	This is set only for Endpoint Core Detection events (see below). The possible values are: ML_MALWARE_DETECTION, VDL_MALWARE_DETECTION, ML_PUA_DETECTION, VDL_PUA_DETECTION, HMPA_DETECTION, MTD_DETECTION, HBT_DETECTION, SCAN_NOW, SCHEDULED_SCAN, REP_MALWARE_DETECTION, REP_PUA_DETECTION, BLOCKLISTED_BY_ADMIN, AMSI_DETECTION, IPS_DETECTION, BEHAVIORAL_DETECTION, DRIVER_BLOCKLIST.
+    # 'appSha256': str, #	String	SHA256	SHA 256 hash of the application associated with the threat, if available. This is set only for Endpoint Core Detection events (see below).
+    # 'appCerts': str, #	List of objects	Endpoint Core Event Certificate object (see below)	
+    # 'ips_threat_data': str, #	Object	IPS Threat Data object (see below)	IPS Threat data associated with the threat, if available. This is set only for Endpoint IPS Detection events.
+    # 'amsi_threat_data': str, #	Object	AMSI Threat Data object (see below)	
 }
 
 # Initialize the SIEM_LOGGER
@@ -309,7 +348,7 @@ def parse_args_options():
     parser.add_option(
         "-l",
         "--light",
-        default=False,
+        default=True,
         action="store_true",
         help="Ignore noisy events - web control, "
         "device control, update failure, "
@@ -404,8 +443,10 @@ def run(options, config_data, state):
             endpoint, options, config_data, state
         )
 
+async def send_mail(graph: Graph, subject, body, recipient, sender):
+    await graph.send_mail(subject,body,recipient,sender)
 
-def main():
+async def main():
     options = parse_args_options()
 
     logging.Formatter.formatTime = (lambda self, record, datefmt=None: datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).astimezone().isoformat(sep="T",timespec="milliseconds"))
@@ -422,6 +463,49 @@ def main():
     state_data = state.State(options, config_data.state_file_path)
     run(options, config_data, state_data)
 
-if __name__ == "__main__":
-    main()
+    config_ini = configparser.ConfigParser()
+    config_ini.read('config.ini')
+    azure_settings = config_ini['azure']
+    sender = config_ini['email']['senderEmail']
+    recipient = config_ini['email']['recipientEmail']
+
+    log_file_path = 'log/'+config_data.filename
+    log_old_file_path = 'log/'+config_data.filename+'.old'
+
+    with open(log_file_path, 'a+', encoding='utf-8') as file:
+        lines = file.readlines()
+        file.seek(0)
+        file.truncate()
+    data = [json.loads(line) for line in lines]
+
+    with open(log_old_file_path, 'a+', encoding='utf-8') as file:
+        lines = file.readlines()
+        last_500_lines = lines[-500:]
+        file.seek(0)
+        file.truncate()
+        file.writelines(last_500_lines)
+        for item in data:
+            file.write(json.dumps(item, ensure_ascii=False) + '\n')
+
+    graph: Graph = Graph(azure_settings)
+
+    for line in data:
+        subject = '[MDR Alert] '+ str(line.get('type'))
+        message = []
+        for key in schema.keys():
+            if line.get(key) != None:
+                message.append(f'{key}: {line.get(key)}')
+        body='\n'.join(message)
+    
+        try:
+            await send_mail(graph, subject, body, recipient, sender)
+        except ODataError as odata_error:
+            print('Error:')
+            if odata_error.error:
+                print(odata_error.error.code, odata_error.error.message)
+
+if __name__ == '__main__':
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main())
+    loop.close()
     

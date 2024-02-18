@@ -52,3 +52,15 @@ convert_dhost_field_to_valid_fqdn = true
 
 #logging level
 logging_level = DEBUG
+
+# Configure Azure app creds to send email via MSGraph
+[azure]
+clientId = 
+tenantId = 
+clientSecret = 
+graphUserScopes = Mail.Send
+
+# Email settings
+[email]
+senderEmail = sender@example.com
+recipientEmail = recipient@example.com
