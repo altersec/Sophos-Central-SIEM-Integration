@@ -53,6 +53,9 @@ convert_dhost_field_to_valid_fqdn = true
 #logging level
 logging_level = DEBUG
 
+# Set to true and configure email API
+send_email = false
+
 # Configure Azure app creds to send email via MSGraph
 [azure]
 clientId = 
