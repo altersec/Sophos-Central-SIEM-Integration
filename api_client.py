@@ -64,7 +64,7 @@ class ApiClient:
         self.options = options
         self.config = config
         logdir = self.create_log_dir()
-        self.add_siem_logeer_handler(logdir)
+        self.add_siem_logger_handler(logdir)
         self.opener = self.create_request_builder()
         self.get_noisy_event_types = self.get_noisy_event_types()
 
@@ -129,7 +129,7 @@ class ApiClient:
         """ Added the rendom sleep """
         time.sleep(randint(0, 10))
 
-    def add_siem_logeer_handler(self, logdir):
+    def add_siem_logger_handler(self, logdir):
         """Added the log handler
         Arguments:
             logdir {string}: log directory path
@@ -221,7 +221,7 @@ class ApiClient:
                 raise
             return response.read()
 
-    def get_alerts_or_events(self):
+    def get_alerts_or_events(self, write_fnc):
         """Get alerts/events data
         Returns:
             results {list} -- alerts/events response data
@@ -242,21 +242,24 @@ class ApiClient:
             self.config.client_id
             and self.config.client_secret
         ):
-            tenant_obj = self.get_tenants_from_sophos()
+            tenant_objs = self.get_tenants_from_sophos()
 
-            if "id" in tenant_obj:
-                results = self.make_credentials_request(
-                   endpoint_name, tenant_obj
-                )
+            if "items" in tenant_objs:
+                logging.info("Found %s tenants." % len(tenant_objs["items"]))
+                for tenant_obj in tenant_objs["items"]:
+                    result = self.make_credentials_request(
+                        endpoint_name, tenant_obj, tenant_objs["access_token"]
+                    )
+                    write_fnc(result)
             else:
-                logging.critical(tenant_obj["error"])
-                raise SystemExit()
+                logging.critical("Error :: %s" % tenant_objs["error"])
+                raise Exception(tenant_objs["error"])
         else:
             token_data = config.Token(self.config.token_info)
-            results = self.make_token_request(
+            result = self.make_token_request(
                 endpoint_name, token_data
             )
-        return results
+            write_fnc(result)
 
     def call_endpoint(self, api_host, default_headers, args):
         """Execute the API request
@@ -272,7 +275,10 @@ class ApiClient:
         events_response = self.request_url(events_request_url, None, default_headers)
         if self.options.debug:
             logging.info("RESPONSE: %s" % events_response)
-        events = json.loads(events_response)
+        if events_response:
+            events = json.loads(events_response)
+        else:
+            events = {}
         return events
 
     def get_alerts_or_events_req_args(self, params, endpoint_name):
@@ -353,7 +359,7 @@ class ApiClient:
                 params["cursor"] = events["next_cursor"]
                 params.pop("from_date", None)
 
-    def make_credentials_request(self, endpoint_name, tenant_obj):
+    def make_credentials_request(self, endpoint_name, tenant_obj, access_token):
         """Make alerts/events request by using API credentials.
         Arguments:
             endpoint_name {string}: endpoint name
@@ -361,11 +367,13 @@ class ApiClient:
         Returns:
             dict -- yield event/alert object
         """
+        logging.info("Processing Tenant: %s" % (tenant_obj['showAs']))
+
         state_data_key = endpoint_name + "LastFetched"
         tenant_id = tenant_obj["id"]
         default_headers = {
             "X-Tenant-ID": tenant_id,
-            "Authorization": "Bearer " + tenant_obj["access_token"],
+            "Authorization": "Bearer " + (tenant_obj["access_token"] if not access_token else access_token),
         }
         params = {"limit": 1000}
 
@@ -390,20 +398,26 @@ class ApiClient:
                     e["datastream"] = (
                         EVENT_TYPE if (self.endpoint == EVENTS_V1) else ALERT_TYPE
                     )
+                    e["customer_name"] = tenant_obj["name"]
+                    e["data_geography"] = tenant_obj["dataGeography"]
+                    e["data_region"] = tenant_obj["dataRegion"]
                     yield e
             else:
                 logging.info(
                     "No new %s data retrieved from the API"
                     % endpoint_name
                 )
-            cursor_key = "tenants." + tenant_id + "." + state_data_key
-            data_region_url_key = "tenants." + tenant_id + ".dataRegionUrl"
-            last_run_key = "tenants." + tenant_id + ".lastRunAt"
 
-            self.state.save_state(cursor_key, events["next_cursor"])
-            self.state.save_state(data_region_url_key, data_region_url)
-            self.state.save_state(last_run_key, time.time())
-            if not events["has_more"]:
+            if "next_cursor" in events:
+                cursor_key = "tenants." + tenant_id + "." + state_data_key
+                data_region_url_key = "tenants." + tenant_id + ".dataRegionUrl"
+                last_run_key = "tenants." + tenant_id + ".lastRunAt"
+
+                self.state.save_state(cursor_key, events["next_cursor"])
+                self.state.save_state(data_region_url_key, data_region_url)
+                self.state.save_state(last_run_key, time.time())
+
+            if "has_more" not in events or not events["has_more"]:
                 break
             else:
                 params["cursor"] = events["next_cursor"]
@@ -440,19 +454,20 @@ class ApiClient:
                     tenant_data = self.get_partner_organization_tenants(
                         whoami_response, access_token
                     )
-                    tenant_data["access_token"] = access_token
                 else:
-                    if (
-                        self.config.tenant_id != ""
-                        and self.config.tenant_id
-                        != whoami_response["id"]
-                    ):
-                        raise Exception(
-                            "Configuration file mention tenant id not matched with whoami data tenant id"
-                        )
-                    else:
-                        tenant_data = whoami_response
-                        tenant_data["access_token"] = access_token
+                    tenant_data = {
+                        "items": [ whoami_response ],
+                        "access_token": access_token
+                    }
+
+                if (self.config.tenant_id != ""):
+                    tenants = [ tenant for tenant in tenant_data["items"] if tenant["id"] == self.config.tenant_id ]
+                    tenant_data["items"] = tenants
+
+                if (len(tenant_data["items"]) == 0):
+                    raise Exception(
+                        "Configuration file mention tenant id not matched with whoami data tenant id"
+                    )
                 return tenant_data
             else:
                 logging.info(
@@ -462,7 +477,8 @@ class ApiClient:
                 return whoami_response
         else:
             logging.error(
-                "JWT token not found for client id"
+                "JWT token not found for client id :: %s"
+                % self.config.client_id
             )
             return response
 
@@ -547,20 +563,15 @@ class ApiClient:
             logging.error(e)
             return {"error": e}
 
-    def get_partner_organization_tenants(self, whoami_response, access_token):
+    def get_partner_organization_tenants(self, whoami_response, access_token, page_num=1):
         """Get the tenants for partner and organization by calling tenant API.
         Arguments:
             whoami_response {object}: whoami data
             access_token {string}' JWT token value (default: {None})
+            page_num {int}: page number in case of more than 100 tenants (default: 1)
         Returns:
-            dict -- response containing whoami response or error
+            dict -- response containing list of whoami response or error in property "items"
         """
-        if not self.config.tenant_id:
-            raise Exception(
-                f"When using {whoami_response['idType']} credentials, you must specify the tenant id in config.ini"
-            )
-
-        tenant = {}
         try:
             if whoami_response["idType"] == "organization":
                 default_headers = {
@@ -577,13 +588,23 @@ class ApiClient:
                 whoami_response["apiHosts"]["global"]
                 + "/"
                 + whoami_response["idType"]
-                + "/v1/tenants/"
-                + self.config.tenant_id
+                + "/v1/tenants?pageTotal=true&page="
+                + str(page_num if page_num > 0 else 1)
             )
             tenant_response = self.request_url(tenant_url, None, default_headers, 1)
+            logging.debug("Tenant response: %s" % (tenant_response))
 
-            logging.info("Tenant response: %s" % (tenant_response))
-            return json.loads(tenant_response)
+            response = json.loads(tenant_response)
+            tenants = {
+                "access_token": access_token,
+                "items": response["items"]
+                }
+
+            if response["pages"]["current"] < response["pages"]["total"]:
+                next_results = self.get_partner_organization_tenants(whoami_response, access_token, response["pages"]["current"]+1)
+                if "items" in next_results:
+                    tenants["items"].extend(next_results["items"])
+            return tenants
 
         except json.decoder.JSONDecodeError as e:
             logging.error(f"Sophos {whoami_response['idType']} tenant API response not in json format")

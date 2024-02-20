@@ -120,14 +120,14 @@ def is_valid_fqdn(fqdn):
 def convert_to_valid_fqdn(value):
     return ".".join([re.sub("[^-a-z0-9]+", "-", x.strip()).strip("-") for x in value.lower().split(".") if x.strip()])
 
-def write_json_format(results, config):
+def write_json_format(results):
     """Write JSON format data.
     Arguments:
         results {list}: data
     """
     for i in results:
         i = remove_null_values(i)
-        update_cef_keys(i, config)
+        update_cef_keys(i)
         name_mapping.update_fields(log, i)
         SIEM_LOGGER.info(json.dumps(i, ensure_ascii=False).strip())
 
@@ -259,7 +259,7 @@ def extract_prefix_fields(data):
     return fields
 
 
-def update_cef_keys(data, config):
+def update_cef_keys(data):
     """ Replace if there is a mapped CEF key
     Arguments:
         data {dict}: data
@@ -269,7 +269,7 @@ def update_cef_keys(data, config):
         new_key = CEF_MAPPING.get(key, key)
         if new_key == key:
             continue
-        if config.convert_dhost_field_to_valid_fqdn.lower() == "true" and new_key == "dhost" and not is_valid_fqdn(value):
+        if new_key == "dhost" and not is_valid_fqdn(value):
             value = convert_to_valid_fqdn(value)
         data[new_key] = value
         del data[key]
@@ -413,17 +413,18 @@ def get_alerts_or_events(endpoint, options, config, state):
         config {dict}: config file details
         state {dict}: state file details
     """
-    api_client_obj = api_client.ApiClient(endpoint, options, config, state)
-    results = api_client_obj.get_alerts_or_events()
-    
+
     if config.format == "json":
-        write_json_format(results, config)
+        write = write_json_format
     elif config.format == "keyvalue":
-        write_keyvalue_format(results, config)
+        write = write_keyvalue_format
     elif config.format == "cef":
-        write_cef_format(results, config)
+        write = write_cef_format
     else:
-        write_json_format(results, config)
+        write = write_json_format
+
+    api_client_obj = api_client.ApiClient(endpoint, options, config, state)
+    api_client_obj.get_alerts_or_events(write)
 
 def run(options, config_data, state):
     """ Call the fetch alerts/events method
@@ -451,8 +452,6 @@ async def main():
 
     logging.Formatter.formatTime = (lambda self, record, datefmt=None: datetime.datetime.fromtimestamp(record.created, datetime.timezone.utc).astimezone().isoformat(sep="T",timespec="milliseconds"))
   
-
-
     config_data = load_config(options.config)
     logging.info("Logging Level is set as: "+config_data.logging_level)
     logger = logging.getLogger()
@@ -463,46 +462,49 @@ async def main():
     state_data = state.State(options, config_data.state_file_path)
     run(options, config_data, state_data)
 
+    log_file_path = 'log/'+config_data.filename
+    log_old_file_path = 'log/'+config_data.filename+'.old'
+
+    with open(log_file_path, 'r', encoding='utf-8') as file:
+        lines = file.readlines()
+    data = [json.loads(line) for line in lines]
+
     config_ini = configparser.ConfigParser()
     config_ini.read('config.ini')
     azure_settings = config_ini['azure']
     sender = config_ini['email']['senderEmail']
     recipient = config_ini['email']['recipientEmail']
-
-    log_file_path = 'log/'+config_data.filename
-    log_old_file_path = 'log/'+config_data.filename+'.old'
-
-    with open(log_file_path, 'a+', encoding='utf-8') as file:
-        lines = file.readlines()
-        file.seek(0)
-        file.truncate()
-    data = [json.loads(line) for line in lines]
-
-    with open(log_old_file_path, 'a+', encoding='utf-8') as file:
-        lines = file.readlines()
-        last_500_lines = lines[-500:]
-        file.seek(0)
-        file.truncate()
-        file.writelines(last_500_lines)
-        for item in data:
-            file.write(json.dumps(item, ensure_ascii=False) + '\n')
-
     graph: Graph = Graph(azure_settings)
 
-    for line in data:
-        subject = '[MDR Alert] '+ str(line.get('type'))
-        message = []
-        for key in schema.keys():
-            if line.get(key) != None:
-                message.append(f'{key}: {line.get(key)}')
-        body='\n'.join(message)
-    
-        try:
-            await send_mail(graph, subject, body, recipient, sender)
-        except ODataError as odata_error:
-            print('Error:')
-            if odata_error.error:
-                print(odata_error.error.code, odata_error.error.message)
+    if config_data.send_email.lower() == "true":
+        for line in data:
+            subject = '[MDR Alert] - ' + str(line.get('customer_name')) + ' - ' + str(line.get('type'))
+            message = []
+            for key in schema.keys():
+                if line.get(key) != None:
+                    message.append(f'{key}: {line.get(key)}')
+            body='\n'.join(message)
+        
+            try:
+                await send_mail(graph, subject, body, recipient, sender)
+            except ODataError as odata_error:
+                print('Error:')
+                if odata_error.error:
+                    print(odata_error.error.code, odata_error.error.message)
+
+    if len(data) > 0:
+        logging.info("Moving data to log.old and trimming log to 500 lines.")
+        with open(log_file_path, 'a+', encoding='utf-8') as file:
+            file.seek(0)
+            file.truncate()
+        with open(log_old_file_path, 'a+', encoding='utf-8') as file:
+            lines = file.readlines()
+            last_500_lines = lines[-500:]
+            file.seek(0)
+            file.truncate()
+            file.writelines(last_500_lines)
+            for line in data:
+                file.write(json.dumps(line, ensure_ascii=False) + '\n')
 
 if __name__ == '__main__':
     loop = asyncio.get_event_loop()
