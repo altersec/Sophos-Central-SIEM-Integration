@@ -470,7 +470,7 @@ async def main():
     data = [json.loads(line) for line in lines]
 
     config_ini = configparser.ConfigParser()
-    config_ini.read('config.ini')
+    config_ini.read(options.config)
     azure_settings = config_ini['azure']
     sender = config_ini['email']['senderEmail']
     recipient = config_ini['email']['recipientEmail']
