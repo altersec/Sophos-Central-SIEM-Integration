@@ -28,8 +28,8 @@ We recommend running this script with the latest version of Python 3.7 or newer.
 ### Email via MSGraph API ###
 
 ```
-python3 -m pip install azure-identity
-python3 -m pip install msgraph-sdk
+python3 -m pip install azure-identity --break-system-packages
+python3 -m pip install msgraph-sdk --break-system-packages
 ```
 Configure the Azure App and email settings
 
