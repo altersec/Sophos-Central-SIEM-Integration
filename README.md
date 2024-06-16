@@ -1,15 +1,5 @@
 # SIEM Script
 
-#### Powered By Sophos Central
-
-![N|Solid](https://www.sophos.com/en-us/medialibrary/SophosNext/Images/LP/SophosCentral/central-logo-cir.png?la=en)
-
-
-This repository contains a script package to export event and alert data from Sophos Central into a SIEM solution.
-
-Any issue discovered using the script should be reported to Sophos Support.
-
-
 ### SIEM
 
 The script in this directory allows you to use the Sophos Central API to get data into your SIEM solution.
@@ -33,44 +23,13 @@ python3 -m pip install msgraph-sdk --break-system-packages
 ```
 Configure the Azure App and email settings
 
-#### Releases ####
+### Crontab ###
 
-See [changelog](CHANGELOG.md) for full details.
-
-##### [v2.1.0](https://github.com/sophos/Sophos-Central-SIEM-Integration/archive/v2.1.0.zip) #####
-
-* Bug fixes
-
-##### [v2.0.1](https://github.com/sophos/Sophos-Central-SIEM-Integration/archive/v2.0.1.zip) #####
-
-* Added check for minimum supported Python version.
-
-##### [v2.0.0](https://github.com/sophos/Sophos-Central-SIEM-Integration/archive/v2.0.0.zip) #####
-
-* New JWT-based authentication for the SIEM API
-* Better support for partners and enterprise customers
-* State file consolidated
-* Drop support for Python 2.x
-
-##### [v1.1.0](https://github.com/sophos/Sophos-Central-SIEM-Integration/archive/v1.1.0.zip) #####
-
-* CSA-2918: Adding text identifier to distinguish between an 'Event' and 'Alert'
-* CSA-2917: Fixing issue with double alert reporting
-
-##### [v1.0.0](https://github.com/sophos/Sophos-Central-SIEM-Integration/archive/v1.0.0.zip) #####
-
-* Initial release
-
-#### API Updates ####
-
-The following updates are part of an API update. They will be live for ***all versions of SIEM after their listed release dates.***
-
-See [changelog](CHANGELOG.md) for full details.
-
-##### 2019-04-13 #####
-
-* Updated conversion logic to ensure matching identifiers between output objects for the following elements:
--- endpoint_id --	customer_id --	event_service_event_id
+crontab -e
+```
+0,10,20,30,40,50 * * * *   cd /opt/Sophos-Central-SIEM-Integration && python3 siem.py
+0,10,20,30,40,50 * * * *   cd /opt/Sophos-Central-SIEM-Integration && python3 siem.py -c config-XXX.ini
+```
 
 ### Configuration ###
 

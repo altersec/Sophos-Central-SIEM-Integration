@@ -37,7 +37,7 @@ TYPE_HANDLERS = {
 
     "Event::Endpoint::NonCompliant": threat_regex,    # None == ignore the event
     "Event::Endpoint::Compliant": threat_regex,
-    "Event::Endpoint::Device::AlertedOnly": threat_regex,
+    "Event::Endpoint::Device::AlertedOnly": None,
     "Event::Endpoint::UpdateFailure": None,
     "Event::Endpoint::SavScanComplete": None,
     "Event::Endpoint::Application::Allowed": threat_regex,
@@ -47,6 +47,10 @@ TYPE_HANDLERS = {
     "Event::Endpoint::UpdateRebootRequired": None,
     "Event::Endpoint::Registered": threat_regex,
     "Event::Endpoint::UserAutoCreated": None,
+    "Event::Firewall::LostConnectionToSophosCentral": None,
+    "Event::ZTNA::ZTNAGatewayUnreachable": None,
+    "Event::Wireless::WifixAccessPoint::Common": None,
+    "Event::CSWITCH::CSwitchDisconnected": None,
 }
 
 
