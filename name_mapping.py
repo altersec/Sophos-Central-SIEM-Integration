@@ -41,8 +41,9 @@ TYPE_HANDLERS = {
     "Event::Endpoint::UpdateFailure": None,
     "Event::Endpoint::SavScanComplete": None,
     "Event::Endpoint::Application::Allowed": threat_regex,
+    "Event::Endpoint::Application::Blocked": None,
     "Event::Endpoint::UpdateSuccess": None,
-    "Event::Endpoint::WebControlViolation": threat_regex,
+    "Event::Endpoint::WebControlViolation": None,
     "Event::Endpoint::WebFilteringBlocked": threat_regex,
     "Event::Endpoint::UpdateRebootRequired": None,
     "Event::Endpoint::Registered": threat_regex,
@@ -51,6 +52,12 @@ TYPE_HANDLERS = {
     "Event::ZTNA::ZTNAGatewayUnreachable": None,
     "Event::Wireless::WifixAccessPoint::Common": None,
     "Event::CSWITCH::CSwitchDisconnected": None,
+    "Event::Endpoint::HmpaExploitPrevented": None,
+    "Event::Endpoint::MacHealth": None,
+    "Event::EntraSync::Success": None,
+    "Event::Endpoint::Reprotected": None,
+    "Event::ADSync::Success": None,
+    "Event::Endpoint::CoreScanOnDemand::Started": None
 }
 
 
@@ -58,6 +65,8 @@ def update_fields(log, data):
     """
         Split 'name' field into multiple fields based on regex and field names specified in TYPE_HANDLERS
         Original 'name' field is replaced with the detection_identity_name field, if returned by regex.
+        Returns False if the event's type is mapped to None (i.e. the event should be dropped entirely),
+        otherwise True.
     """
 
     if u'description' in data.keys():
@@ -66,11 +75,11 @@ def update_fields(log, data):
     if data[u'type'] in TYPE_HANDLERS:
         prog_regex = TYPE_HANDLERS[data[u'type']]
         if not prog_regex:
-            return
+            return False
         result = prog_regex.search(data[u'name'])
         if not result:
             log("Failed to split name field for event type %r" % data[u'type'])
-            return
+            return True
 
         # Make sure record has a name field corresponding to the first field (for the CEF format)
         gdict = result.groupdict()
@@ -79,6 +88,8 @@ def update_fields(log, data):
 
         # Update the record with the split out parameters
         data.update(result.groupdict())
+
+    return True
 
 # List of Events from https://support.sophos.com/support/s/article/KB-000038309?language=en_US
 # Event::ADSync::Success	Active Directory synchronization succeeded

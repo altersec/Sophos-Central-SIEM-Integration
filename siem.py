@@ -128,7 +128,8 @@ def write_json_format(results):
     for i in results:
         i = remove_null_values(i)
         update_cef_keys(i)
-        name_mapping.update_fields(log, i)
+        if not name_mapping.update_fields(log, i):
+            continue
         SIEM_LOGGER.info(json.dumps(i, ensure_ascii=False).strip())
 
 
@@ -140,7 +141,8 @@ def write_keyvalue_format(results, config):
     for i in results:
         i = remove_null_values(i)
         update_cef_keys(i, config)
-        name_mapping.update_fields(log, i)
+        if not name_mapping.update_fields(log, i):
+            continue
         date = i[u"rt"]
         # TODO:  Spaces/quotes/semicolons are not escaped here, does it matter?
         events = list('%s="%s";' % (k, v) for k, v in i.items())
@@ -161,7 +163,8 @@ def write_cef_format(results, config):
     """
     for i in results:
         i = remove_null_values(i)
-        name_mapping.update_fields(log, i)
+        if not name_mapping.update_fields(log, i):
+            continue
         SIEM_LOGGER.info(format_cef(flatten_json(i), config).strip())
 
 
